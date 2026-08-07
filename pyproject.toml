@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+#requires = [
+    "hatchling",
+    "hatch-vcs",
+]
+#build-backend = "hatchling.build"
+
+[project]
+name = "sonata-config-bot"
+version = "0.1.0"
+description = "Chatbot that generates SONATA simulation configuration JSON from natural language."
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=0.3",
+    "langchain-groq>=0.3",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
