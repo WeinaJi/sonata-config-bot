@@ -15,10 +15,13 @@ Usage (CLI)
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 from pathlib import Path
 
+import libsonata
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -47,11 +50,16 @@ SONATA simulation config key sections:
 Conversation strategy
 ---------------------
 1. Start by asking for the three mandatory run parameters (tstop, dt, random_seed).
-2. Ask about conditions (temperature, v_init) and node_set.
-3. Ask if they want any inputs (stimuli) — if yes, ask for details per stimulus.
-4. Ask if they want reports — if yes, ask for details per report.
-5. Ask about connection_overrides if relevant.
-6. Once you have enough information, output ONLY a JSON code block containing
+2. Ask which node_set to simulate (which population of cells). Explain that leaving
+   it empty means all non-virtual nodes will be loaded.
+3. Ask about conditions (temperature, v_init, spike_location).
+4. Ask if they want any inputs (stimuli) — if yes, ask for details per stimulus.
+   Always ask which node_set each input targets.
+5. Ask if they want reports — if yes, ask for details per report.
+   Always ask which node_set each report covers.
+6. Always ask about connection_overrides — whether the user wants to adjust
+   synaptic weights between any populations. Do not skip this step.
+7. Once you have enough information, output ONLY a JSON code block containing
    the complete simulation_config, nothing else. The block must be valid JSON
    that conforms to the SONATA spec.
 
@@ -89,6 +97,39 @@ Conversation:
 # ---------------------------------------------------------------------------
 
 _state: dict[str, ChatGroq | None] = {"llm": None}
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+MAX_RETRIES = 2
+RETRY_DELAY_SECONDS = 2.0
+
+RATE_LIMIT_MSG = (
+    "Rate limit reached — Groq's free tier has a per-minute token cap. Please wait about a minute and try again."
+)
+
+
+def _invoke_with_retry(chain, kwargs: dict, retries: int = MAX_RETRIES) -> str:
+    """Invoke a LangChain chain with retries on transient errors. Fails fast on rate limits."""
+    for attempt in range(1, retries + 1):
+        try:
+            return chain.invoke(kwargs)
+        except Exception as exc:
+            err_str = str(exc).lower()
+
+            # Rate limit — fail immediately, retries won't help within the same minute
+            if "rate_limit" in err_str or "429" in err_str:
+                raise RuntimeError(RATE_LIMIT_MSG) from exc
+
+            # Transient errors — retry with backoff
+            is_retryable = any(keyword in err_str for keyword in ("timeout", "timed out", "connection", "503"))
+            if is_retryable and attempt < retries:
+                wait = RETRY_DELAY_SECONDS * attempt
+                logger.warning("LLM call failed (attempt %d/%d): %s — retrying in %.1fs", attempt, retries, exc, wait)
+                time.sleep(wait)
+            else:
+                raise
+    return ""  # unreachable, satisfies type checker
 
 
 def _get_llm() -> ChatGroq:
@@ -158,9 +199,16 @@ def validate_config(raw_json: str) -> tuple[SimulationConfig | None, str | None]
 
     try:
         config = SimulationConfig.model_validate(data)
-        return config, None
     except ValidationError as exc:
         return None, str(exc)
+
+    try:
+        libsonata.SimulationConfig(raw_json, "./")
+        logger.info("libsonata validated!")
+    except libsonata.SonataError as exc:
+        return None, f"libsonata parse error: {exc}"
+
+    return config, None
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +228,11 @@ def chat_turn(
     JSON block in its reply.
     """
     chain = _build_chat_chain()
-    reply = chain.invoke({"history": history, "input": user_message})
+    try:
+        reply = _invoke_with_retry(chain, {"history": history, "input": user_message})
+    except Exception as exc:
+        logger.exception("chat_turn failed")
+        reply = f"Sorry, I encountered an error communicating with the LLM: {exc}"
 
     history.append(HumanMessage(content=user_message))
     history.append(AIMessage(content=reply))
@@ -201,19 +253,28 @@ def extract_config(
     Returns (config, None) on success, (None, error_message) on failure.
     """
     chain = _build_extract_chain()
-    raw = chain.invoke({"history": history_as_text(history)})
+    try:
+        raw = _invoke_with_retry(chain, {"history": history_as_text(history)})
+    except Exception as exc:
+        logger.exception("extract_config failed")
+        return None, f"LLM request failed after {MAX_RETRIES} retries: {exc}"
     return validate_config(raw)
 
 
 def opening_message() -> str:
     """Return the assistant's first message to start a fresh conversation."""
     chain = _build_chat_chain()
-    return chain.invoke(
-        {
-            "history": [],
-            "input": "Hello! I'd like to set up a SONATA simulation.",
-        },
-    )
+    try:
+        return _invoke_with_retry(
+            chain,
+            {
+                "history": [],
+                "input": "Hello! I'd like to set up a SONATA simulation.",
+            },
+        )
+    except Exception as exc:
+        logger.exception("opening_message failed")
+        return f"Hello! I'm ready to help you build a SONATA config. (Note: LLM error occurred: {exc})"
 
 
 # ---------------------------------------------------------------------------

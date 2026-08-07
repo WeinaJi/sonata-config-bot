@@ -70,3 +70,9 @@ The Pydantic models cover the full SONATA simulation config specification (v2.4)
 ## License
 
 TBD
+
+## TODO
+
+- [ ] Persist sessions in PostgreSQL so they survive server restarts (replace in-memory `_sessions` dict)
+- [ ] Add RAG with SONATA spec documentation for more accurate responses
+- [ ] Convert chatbot to a LangChain agent with a `validate_config` tool for autonomous error correction
