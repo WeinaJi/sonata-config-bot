@@ -1,23 +1,25 @@
 """
-SONATA Simulation Config Chatbot
-=================================
-A conversational chatbot that gathers simulation requirements from the user
-and produces a valid SONATA simulation_config.json.
+SONATA Simulation Config Chatbot — core logic
+=============================================
+This module exposes two reusable functions consumed by both the CLI
+entry-point and the FastAPI server:
 
-Usage
------
+  - chat_turn(history, user_message) -> (reply, config_or_None)
+  - extract_config(history)           -> (config_or_None, error_str_or_None)
+
+Usage (CLI)
+-----------
     GROQ_API_KEY=<your_key> python chatbot.py
-
-Get a free Groq API key at: https://console.groq.com/
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -85,28 +87,54 @@ Conversation:
 """
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Module-level LLM (initialised lazily)
+# ---------------------------------------------------------------------------
+
+_llm: Optional[ChatGroq] = None
+
+
+def _get_llm() -> ChatGroq:
+    global _llm
+    if _llm is None:
+        api_key = os.environ.get("GROQ_API_KEY", "")
+        if not api_key:
+            raise EnvironmentError(
+                "GROQ_API_KEY environment variable is not set. "
+                "Get a free key at https://console.groq.com/"
+            )
+        _llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            api_key=api_key,
+        )
+    return _llm
+
+
+def _build_chat_chain():
+    llm = _get_llm()
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{input}"),
+        ]
+    )
+    return prompt | llm | StrOutputParser()
+
+
+def _build_extract_chain():
+    llm = _get_llm()
+    prompt = ChatPromptTemplate.from_template(EXTRACT_PROMPT)
+    return prompt | llm | StrOutputParser()
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
 # ---------------------------------------------------------------------------
 
 
-def _build_llm() -> ChatGroq:
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
-        print(
-            "ERROR: GROQ_API_KEY environment variable is not set.\n"
-            "Get a free key at https://console.groq.com/ then run:\n"
-            "  export GROQ_API_KEY=<your_key>\n"
-        )
-        sys.exit(1)
-    return ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0.2,
-        api_key=api_key,
-    )
-
-
-def _history_as_text(messages: list) -> str:
-    """Convert message list to a plain-text transcript for extraction."""
+def history_as_text(messages: list) -> str:
+    """Convert a LangChain message list to a plain-text transcript."""
     lines = []
     for m in messages:
         if isinstance(m, HumanMessage):
@@ -116,76 +144,102 @@ def _history_as_text(messages: list) -> str:
     return "\n".join(lines)
 
 
-def _extract_json_from_reply(text: str) -> str | None:
-    """Pull the first ```json ... ``` block out of a model reply, or return None."""
-    import re
-    pattern = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
-    match = pattern.search(text)
+def extract_json_from_reply(text: str) -> str | None:
+    """Return the first ```json ... ``` block from a model reply, or None."""
+    match = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL).search(text)
     return match.group(1).strip() if match else None
 
 
-def _validate_and_save(raw_json: str, output_path: Path) -> SimulationConfig | None:
-    """Parse raw JSON into SimulationConfig; return the model or None on error."""
+def validate_config(raw_json: str) -> tuple[SimulationConfig | None, str | None]:
+    """
+    Parse raw JSON into SimulationConfig.
+    Returns (config, None) on success, (None, error_message) on failure.
+    """
     try:
         data = json.loads(raw_json)
     except json.JSONDecodeError as exc:
-        print(f"\n[Validation] JSON parse error: {exc}")
-        return None
+        return None, f"JSON parse error: {exc}"
 
     try:
         config = SimulationConfig.model_validate(data)
+        return config, None
     except ValidationError as exc:
-        print(f"\n[Validation] Schema validation errors:\n{exc}")
-        return None
-
-    # Serialise back to JSON (uses model serializer, enums → values)
-    output_path.write_text(
-        config.model_dump_json(indent=2, exclude_none=True), encoding="utf-8"
-    )
-    return config
+        return None, str(exc)
 
 
 # ---------------------------------------------------------------------------
-# Main chat loop
+# Core API functions
 # ---------------------------------------------------------------------------
 
 
-def run_chatbot() -> None:
-    llm = _build_llm()
-    history: list[HumanMessage | AIMessage] = []
+def chat_turn(
+    history: list,
+    user_message: str,
+) -> tuple[str, SimulationConfig | None]:
+    """
+    Send one user message, append to history in-place, return
+    (assistant_reply, config_or_None).
 
-    # Build the conversational chain
-    chat_prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content=SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{input}"),
-        ]
-    )
-    chat_chain = chat_prompt | llm | StrOutputParser()
+    Config is non-None only when the model spontaneously produced a valid
+    JSON block in its reply.
+    """
+    chain = _build_chat_chain()
+    reply = chain.invoke({"history": history, "input": user_message})
 
-    # Extraction chain (single-shot, no memory needed)
-    extract_chain = (
-        ChatPromptTemplate.from_template(EXTRACT_PROMPT) | llm | StrOutputParser()
-    )
+    history.append(HumanMessage(content=user_message))
+    history.append(AIMessage(content=reply))
 
-    print("=" * 60)
-    print("  SONATA Simulation Config Chatbot")
-    print("  Type 'generate' at any time to produce the JSON file.")
-    print("  Type 'quit' or 'exit' to quit.")
-    print("=" * 60)
-    print()
+    config: SimulationConfig | None = None
+    json_block = extract_json_from_reply(reply)
+    if json_block:
+        config, _ = validate_config(json_block)
 
-    # Kick off with a greeting from the assistant
-    opening = chat_chain.invoke(
+    return reply, config
+
+
+def extract_config(
+    history: list,
+) -> tuple[SimulationConfig | None, str | None]:
+    """
+    Run the extraction chain over the full conversation history.
+    Returns (config, None) on success, (None, error_message) on failure.
+    """
+    chain = _build_extract_chain()
+    raw = chain.invoke({"history": history_as_text(history)})
+    return validate_config(raw)
+
+
+def opening_message() -> str:
+    """Return the assistant's first message to start a fresh conversation."""
+    chain = _build_chat_chain()
+    reply = chain.invoke(
         {
             "history": [],
             "input": "Hello! I'd like to set up a SONATA simulation.",
         }
     )
-    print(f"Assistant: {opening}\n")
+    return reply
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point (kept for convenience)
+# ---------------------------------------------------------------------------
+
+
+def _run_cli() -> None:
+    history: list = []
+
+    print("=" * 60)
+    print("  SONATA Simulation Config Chatbot")
+    print("  Type 'generate' to produce the JSON file.")
+    print("  Type 'quit' or 'exit' to quit.")
+    print("=" * 60)
+    print()
+
+    greeting = opening_message()
     history.append(HumanMessage(content="Hello! I'd like to set up a SONATA simulation."))
-    history.append(AIMessage(content=opening))
+    history.append(AIMessage(content=greeting))
+    print(f"Assistant: {greeting}\n")
 
     while True:
         try:
@@ -196,53 +250,36 @@ def run_chatbot() -> None:
 
         if not user_input:
             continue
-
         if user_input.lower() in {"quit", "exit"}:
             print("Goodbye!")
             break
 
-        # ----------------------------------------------------------------
-        # Special command: generate the config file now
-        # ----------------------------------------------------------------
         if user_input.lower() == "generate":
             print("\nAssistant: Generating your simulation config…\n")
-            history_text = _history_as_text(history)
-            raw = extract_chain.invoke({"history": history_text})
-
-            output_path = Path("simulation_config.json")
-            config = _validate_and_save(raw, output_path)
-
+            config, error = extract_config(history)
             if config:
+                output_path = Path("simulation_config.json")
+                output_path.write_text(
+                    config.model_dump_json(indent=2, exclude_none=True),
+                    encoding="utf-8",
+                )
                 print(f"Config saved to: {output_path.resolve()}\n")
                 print(output_path.read_text())
             else:
-                print(
-                    "The generated config failed validation (see errors above).\n"
-                    "Let's keep refining — tell me what to fix or add more details.\n"
-                )
+                print(f"Generation failed:\n{error}\n")
             continue
 
-        # ----------------------------------------------------------------
-        # Normal conversational turn
-        # ----------------------------------------------------------------
-        reply = chat_chain.invoke({"history": history, "input": user_input})
-        history.append(HumanMessage(content=user_input))
-        history.append(AIMessage(content=reply))
+        reply, config = chat_turn(history, user_input)
         print(f"\nAssistant: {reply}\n")
 
-        # If the model spontaneously produced a JSON block, try to save it
-        json_block = _extract_json_from_reply(reply)
-        if json_block:
+        if config:
             output_path = Path("simulation_config.json")
-            config = _validate_and_save(json_block, output_path)
-            if config:
-                print(f"\n[Auto-saved] Config written to: {output_path.resolve()}\n")
-            else:
-                print(
-                    "\n[Auto-save failed] The JSON above has validation errors.\n"
-                    "Continue the conversation to fix them.\n"
-                )
+            output_path.write_text(
+                config.model_dump_json(indent=2, exclude_none=True),
+                encoding="utf-8",
+            )
+            print(f"[Auto-saved] Config written to: {output_path.resolve()}\n")
 
 
 if __name__ == "__main__":
-    run_chatbot()
+    _run_cli()
