@@ -99,7 +99,6 @@ Conversation:
 _state: dict[str, ChatGroq | None] = {"llm": None}
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 MAX_RETRIES = 2
 RETRY_DELAY_SECONDS = 2.0

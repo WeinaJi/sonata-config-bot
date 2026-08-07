@@ -17,6 +17,7 @@ Run with:
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,8 @@ from chatbot import chat_turn, extract_config, opening_message
 
 if TYPE_CHECKING:
     from data_model import SimulationConfig
+
+logging.basicConfig(level=logging.INFO)
 
 # ---------------------------------------------------------------------------
 # App setup
