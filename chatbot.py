@@ -17,9 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from pathlib import Path
-from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -90,24 +88,22 @@ Conversation:
 # Module-level LLM (initialised lazily)
 # ---------------------------------------------------------------------------
 
-_llm: Optional[ChatGroq] = None
+_state: dict[str, ChatGroq | None] = {"llm": None}
 
 
 def _get_llm() -> ChatGroq:
-    global _llm
-    if _llm is None:
+    if _state["llm"] is None:
         api_key = os.environ.get("GROQ_API_KEY", "")
         if not api_key:
-            raise EnvironmentError(
-                "GROQ_API_KEY environment variable is not set. "
-                "Get a free key at https://console.groq.com/"
+            raise OSError(
+                "GROQ_API_KEY environment variable is not set. Get a free key at https://console.groq.com/",
             )
-        _llm = ChatGroq(
+        _state["llm"] = ChatGroq(
             model="llama-3.3-70b-versatile",
             temperature=0.2,
             api_key=api_key,
         )
-    return _llm
+    return _state["llm"]
 
 
 def _build_chat_chain():
@@ -117,7 +113,7 @@ def _build_chat_chain():
             SystemMessage(content=SYSTEM_PROMPT),
             MessagesPlaceholder(variable_name="history"),
             ("human", "{input}"),
-        ]
+        ],
     )
     return prompt | llm | StrOutputParser()
 
@@ -212,13 +208,12 @@ def extract_config(
 def opening_message() -> str:
     """Return the assistant's first message to start a fresh conversation."""
     chain = _build_chat_chain()
-    reply = chain.invoke(
+    return chain.invoke(
         {
             "history": [],
             "input": "Hello! I'd like to set up a SONATA simulation.",
-        }
+        },
     )
-    return reply
 
 
 # ---------------------------------------------------------------------------

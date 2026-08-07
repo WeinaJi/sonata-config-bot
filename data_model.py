@@ -6,35 +6,34 @@ Spec: https://sonata-extension.readthedocs.io/en/latest/sonata_simulation.html
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from enum import StrEnum
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, model_validator
-
 
 # ---------------------------------------------------------------------------
 # Enumerations
 # ---------------------------------------------------------------------------
 
 
-class IntegrationMethod(str, Enum):
+class IntegrationMethod(StrEnum):
     euler = "euler"
     crank_nicolson = "crank_nicolson"
     crank_nicolson_ion = "crank_nicolson_ion"
 
 
-class SpikesSortOrder(str, Enum):
+class SpikesSortOrder(StrEnum):
     none = "none"
     by_id = "by_id"
     by_time = "by_time"
 
 
-class SpikeLocation(str, Enum):
+class SpikeLocation(StrEnum):
     soma = "soma"
     ais = "AIS"
 
 
-class ReportType(str, Enum):
+class ReportType(StrEnum):
     compartment = "compartment"
     summation = "summation"
     synapse = "synapse"
@@ -42,7 +41,7 @@ class ReportType(str, Enum):
     compartment_set = "compartment_set"
 
 
-class ReportSections(str, Enum):
+class ReportSections(StrEnum):
     soma = "soma"
     axon = "axon"
     dend = "dend"
@@ -50,17 +49,17 @@ class ReportSections(str, Enum):
     all = "all"
 
 
-class ReportScaling(str, Enum):
+class ReportScaling(StrEnum):
     none = "none"
     area = "area"
 
 
-class ReportCompartments(str, Enum):
+class ReportCompartments(StrEnum):
     center = "center"
     all = "all"
 
 
-class ModificationType(str, Enum):
+class ModificationType(StrEnum):
     section_list = "section_list"
     section = "section"
     compartment_set = "compartment_set"
@@ -68,7 +67,7 @@ class ModificationType(str, Enum):
     configure_all_sections = "configure_all_sections"
 
 
-class InputType(str, Enum):
+class InputType(StrEnum):
     spikes = "spikes"
     extracellular_stimulation = "extracellular_stimulation"
     current_clamp = "current_clamp"
@@ -129,7 +128,7 @@ class Output(BaseModel):
         default="output",
         description="Directory for output files (spikes, reports).",
     )
-    log_file: Optional[str] = Field(
+    log_file: str | None = Field(
         default=None,
         description="Console output filename. Default is STDOUT.",
     )
@@ -152,37 +151,33 @@ class Modification(BaseModel):
     """One experimental manipulation in the conditions.modifications list."""
 
     name: str = Field(..., description="Descriptive name for the modification.")
-    node_set: Optional[str] = Field(
+    node_set: str | None = Field(
         default=None,
         description="Node set receiving the manipulation.",
     )
     type: ModificationType = Field(..., description="Manipulation type.")
-    section_configure: Optional[str] = Field(
+    section_configure: str | None = Field(
         default=None,
         description="Python snippet for section/segment configuration.",
     )
-    compartment_set: Optional[str] = Field(
+    compartment_set: str | None = Field(
         default=None,
         description="Compartment set name (used when type=compartment_set).",
     )
 
     @model_validator(mode="after")
-    def check_node_set_or_compartment_set(self) -> "Modification":
+    def check_node_set_or_compartment_set(self) -> Modification:
         has_node_set = self.node_set is not None
         has_compartment_set = self.compartment_set is not None
         if not has_node_set and not has_compartment_set:
-            raise ValueError(
-                "Either 'node_set' or 'compartment_set' must be provided in a modification."
-            )
+            raise ValueError("Either 'node_set' or 'compartment_set' must be provided in a modification.")
         if has_node_set and has_compartment_set:
-            raise ValueError(
-                "'node_set' and 'compartment_set' are mutually exclusive in a modification."
-            )
+            raise ValueError("'node_set' and 'compartment_set' are mutually exclusive in a modification.")
         return self
 
 
 # Mechanisms are a free-form dict: { "SUFFIX_NAME": { "var": value, ... } }
-MechanismsConfig = Dict[str, Dict[str, Any]]
+MechanismsConfig = dict[str, dict[str, Any]]
 
 
 class Conditions(BaseModel):
@@ -200,7 +195,7 @@ class Conditions(BaseModel):
         default=SpikeLocation.soma,
         description="Spike detection location: 'soma' or 'AIS'.",
     )
-    extracellular_calcium: Optional[float] = Field(
+    extracellular_calcium: float | None = Field(
         default=None,
         description="Extracellular calcium concentration for synapse scaling.",
     )
@@ -208,11 +203,11 @@ class Conditions(BaseModel):
         default=False,
         description="Enable legacy GABA_A rise time randomization.",
     )
-    mechanisms: Optional[MechanismsConfig] = Field(
+    mechanisms: MechanismsConfig | None = Field(
         default=None,
         description="GLOBAL variable overrides for synapse/mechanism MOD files.",
     )
-    modifications: Optional[List[Modification]] = Field(
+    modifications: list[Modification] | None = Field(
         default=None,
         description="Ordered list of circuit modifications.",
     )
@@ -229,27 +224,23 @@ class _InputBase(BaseModel):
     input_type: InputType
     delay: float = Field(..., description="Activation start time in ms.")
     duration: float = Field(..., description="Duration of the input in ms.")
-    node_set: Optional[str] = Field(
+    node_set: str | None = Field(
         default=None,
         description="Node set affected by input. Mutually exclusive with compartment_set.",
     )
-    compartment_set: Optional[str] = Field(
+    compartment_set: str | None = Field(
         default=None,
         description="Compartment set from compartment_sets.json. Mutually exclusive with node_set.",
     )
 
     @model_validator(mode="after")
-    def check_target(self) -> "_InputBase":
+    def check_target(self) -> _InputBase:
         has_node_set = self.node_set is not None
         has_compartment_set = self.compartment_set is not None
         if not has_node_set and not has_compartment_set:
-            raise ValueError(
-                "Exactly one of 'node_set' or 'compartment_set' must be provided."
-            )
+            raise ValueError("Exactly one of 'node_set' or 'compartment_set' must be provided.")
         if has_node_set and has_compartment_set:
-            raise ValueError(
-                "'node_set' and 'compartment_set' are mutually exclusive."
-            )
+            raise ValueError("'node_set' and 'compartment_set' are mutually exclusive.")
         return self
 
 
@@ -258,7 +249,7 @@ class LinearInput(_InputBase):
 
     module: Literal["linear"] = "linear"
     amp_start: float = Field(..., description="Initial current amplitude in nA.")
-    amp_end: Optional[float] = Field(
+    amp_end: float | None = Field(
         default=None,
         description="Final current amplitude in nA (interpolated).",
     )
@@ -269,10 +260,8 @@ class RelativeLinearInput(_InputBase):
     """Continuous current injection relative to threshold."""
 
     module: Literal["relative_linear"] = "relative_linear"
-    percent_start: float = Field(
-        ..., description="Percentage of threshold current at activation."
-    )
-    percent_end: Optional[float] = Field(
+    percent_start: float = Field(..., description="Percentage of threshold current at activation.")
+    percent_end: float | None = Field(
         default=None,
         description="Percentage of threshold current at conclusion.",
     )
@@ -305,10 +294,7 @@ class SubthresholdInput(_InputBase):
     module: Literal["subthreshold"] = "subthreshold"
     percent_less: int = Field(
         ...,
-        description=(
-            "Percentage below 100%% of threshold current. "
-            "E.g. 20 → 80%%, -20 → 120%%."
-        ),
+        description=("Percentage below 100%% of threshold current. E.g. 20 → 80%%, -20 → 120%%."),
     )
     represents_physical_electrode: bool = Field(default=False)
 
@@ -335,11 +321,11 @@ class SeclampInput(_InputBase):
         ...,
         description="Initial holding voltage in mV (may be overridden by voltage_levels[0]).",
     )
-    duration_levels: Optional[List[float]] = Field(
+    duration_levels: list[float] | None = Field(
         default=None,
         description="Durations of each voltage step in ms.",
     )
-    voltage_levels: Optional[List[float]] = Field(
+    voltage_levels: list[float] | None = Field(
         default=None,
         description="Holding voltages for each step in mV.",
     )
@@ -353,22 +339,22 @@ class NoiseInput(_InputBase):
     """Continuous current with randomized noise."""
 
     module: Literal["noise"] = "noise"
-    mean: Optional[float] = Field(
+    mean: float | None = Field(
         default=None,
         description="Mean current in nA. Mutually exclusive with mean_percent.",
     )
-    mean_percent: Optional[float] = Field(
+    mean_percent: float | None = Field(
         default=None,
         description="Mean as % of threshold. Mutually exclusive with mean.",
     )
-    variance: Optional[float] = Field(
+    variance: float | None = Field(
         default=None,
         description="Variance of the normal distribution.",
     )
     represents_physical_electrode: bool = Field(default=False)
 
     @model_validator(mode="after")
-    def check_mean_fields(self) -> "NoiseInput":
+    def check_mean_fields(self) -> NoiseInput:
         if self.mean is None and self.mean_percent is None:
             raise ValueError("One of 'mean' or 'mean_percent' must be provided.")
         if self.mean is not None and self.mean_percent is not None:
@@ -387,7 +373,7 @@ class ShotNoiseInput(_InputBase):
     amp_var: float = Field(..., description="Variance of gamma-distributed amplitudes.")
     reversal: float = Field(default=0.0, description="Reversal potential in mV.")
     dt: float = Field(default=0.25, description="Signal timestep in ms.")
-    random_seed: Optional[int] = Field(default=None)
+    random_seed: int | None = Field(default=None)
     represents_physical_electrode: bool = Field(default=False)
 
 
@@ -407,7 +393,7 @@ class RelativeShotNoiseInput(_InputBase):
     )
     reversal: float = Field(default=0.0, description="Reversal potential in mV.")
     dt: float = Field(default=0.25, description="Signal timestep in ms.")
-    random_seed: Optional[int] = Field(default=None)
+    random_seed: int | None = Field(default=None)
     represents_physical_electrode: bool = Field(default=False)
 
 
@@ -427,7 +413,7 @@ class AbsoluteShotNoiseInput(_InputBase):
     )
     reversal: float = Field(default=0.0, description="Reversal potential in mV.")
     dt: float = Field(default=0.25, description="Signal timestep in ms.")
-    random_seed: Optional[int] = Field(default=None)
+    random_seed: int | None = Field(default=None)
     represents_physical_electrode: bool = Field(default=False)
 
 
@@ -440,7 +426,7 @@ class OrnsteinUhlenbeckInput(_InputBase):
     sigma: float = Field(..., description="Signal std dev in nA (current_clamp) or uS (conductance).")
     reversal: float = Field(default=0.0, description="Reversal potential in mV.")
     dt: float = Field(default=0.25, description="Signal timestep in ms.")
-    random_seed: Optional[int] = Field(default=None)
+    random_seed: int | None = Field(default=None)
     represents_physical_electrode: bool = Field(default=False)
 
 
@@ -453,7 +439,7 @@ class RelativeOrnsteinUhlenbeckInput(_InputBase):
     sd_percent: float = Field(..., description="Signal std dev as % of threshold/input-resistance.")
     reversal: float = Field(default=0.0, description="Reversal potential in mV.")
     dt: float = Field(default=0.25, description="Signal timestep in ms.")
-    random_seed: Optional[int] = Field(default=None)
+    random_seed: int | None = Field(default=None)
     represents_physical_electrode: bool = Field(default=False)
 
 
@@ -496,7 +482,7 @@ class Report(BaseModel):
     start_time: float = Field(..., description="Report start time in ms.")
     end_time: float = Field(..., description="Report end time in ms.")
 
-    cells: Optional[str] = Field(
+    cells: str | None = Field(
         default=None,
         description="Node set to report. Defaults to the simulation node_set.",
     )
@@ -508,25 +494,19 @@ class Report(BaseModel):
         default=ReportScaling.area,
         description="Density-to-area scaling for summation reports.",
     )
-    compartments: Optional[ReportCompartments] = Field(
+    compartments: ReportCompartments | None = Field(
         default=None,
-        description=(
-            "Which compartments per section to report. "
-            "Defaults to 'center' for soma, 'all' otherwise."
-        ),
+        description=("Which compartments per section to report. Defaults to 'center' for soma, 'all' otherwise."),
     )
-    variable_name: Optional[str] = Field(
+    variable_name: str | None = Field(
         default=None,
-        description=(
-            "Simulation variable to record. "
-            "Comma-separated list for summation. Not applicable for 'lfp'."
-        ),
+        description=("Simulation variable to record. Comma-separated list for summation. Not applicable for 'lfp'."),
     )
-    unit: Optional[str] = Field(
+    unit: str | None = Field(
         default=None,
         description="Descriptive unit label (not validated).",
     )
-    file_name: Optional[str] = Field(
+    file_name: str | None = Field(
         default=None,
         description="Output filename within output_dir. '.h5' added if absent.",
     )
@@ -534,17 +514,17 @@ class Report(BaseModel):
         default=True,
         description="Set to false to suppress this report.",
     )
-    compartment_set: Optional[str] = Field(
+    compartment_set: str | None = Field(
         default=None,
         description="Compartment set name (required when type='compartment_set').",
     )
-    electrodes_file: Optional[str] = Field(
+    electrodes_file: str | None = Field(
         default=None,
         description="Path to HDF5 electrode weights file (required for 'lfp' type).",
     )
 
     @model_validator(mode="after")
-    def check_cells_or_compartment_set(self) -> "Report":
+    def check_cells_or_compartment_set(self) -> Report:
         has_cells = self.cells is not None
         has_compartment_set = self.compartment_set is not None
         if has_cells and has_compartment_set:
@@ -554,29 +534,20 @@ class Report(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def check_lfp_and_variable_name(self) -> "Report":
+    def check_lfp_and_variable_name(self) -> Report:
         if self.type == ReportType.lfp:
             if self.variable_name is not None:
-                raise ValueError(
-                    "'variable_name' is not allowed for 'lfp' report type."
-                )
+                raise ValueError("'variable_name' is not allowed for 'lfp' report type.")
             if self.electrodes_file is None:
-                raise ValueError(
-                    "'electrodes_file' is mandatory for 'lfp' report type."
-                )
-        else:
-            if self.variable_name is None:
-                raise ValueError(
-                    "'variable_name' is mandatory for non-'lfp' report types."
-                )
+                raise ValueError("'electrodes_file' is mandatory for 'lfp' report type.")
+        elif self.variable_name is None:
+            raise ValueError("'variable_name' is mandatory for non-'lfp' report types.")
         return self
 
     @model_validator(mode="after")
-    def check_compartment_set_type(self) -> "Report":
+    def check_compartment_set_type(self) -> Report:
         if self.type == ReportType.compartment_set and self.compartment_set is None:
-            raise ValueError(
-                "'compartment_set' is required when type='compartment_set'."
-            )
+            raise ValueError("'compartment_set' is required when type='compartment_set'.")
         return self
 
 
@@ -591,35 +562,35 @@ class ConnectionOverride(BaseModel):
     name: str = Field(..., description="Descriptive name for this override.")
     source: str = Field(..., description="Node set specifying presynaptic nodes.")
     target: str = Field(..., description="Node set specifying postsynaptic nodes.")
-    weight: Optional[float] = Field(
+    weight: float | None = Field(
         default=None,
         description="Conductance multiplier for synaptic strength.",
     )
-    spont_minis: Optional[float] = Field(
+    spont_minis: float | None = Field(
         default=None,
         description="Spontaneous mini rate for affected synapses.",
     )
-    synapse_configure: Optional[str] = Field(
+    synapse_configure: str | None = Field(
         default=None,
         description="HOC snippet for synapse objects (use %%s as the synapse reference).",
     )
-    modoverride: Optional[str] = Field(
+    modoverride: str | None = Field(
         default=None,
         description="Prefix for the synapse helper file (e.g. 'GluSynapse').",
     )
-    synapse_delay_override: Optional[float] = Field(
+    synapse_delay_override: float | None = Field(
         default=None,
         description="Override for synaptic delay in ms.",
     )
-    delay: Optional[float] = Field(
+    delay: float | None = Field(
         default=None,
         description="Apply weight adjustment after this delay in ms.",
     )
-    neuromodulation_dtc: Optional[float] = Field(
+    neuromodulation_dtc: float | None = Field(
         default=None,
         description="Neuromodulator decay time constant override in ms.",
     )
-    neuromodulation_strength: Optional[float] = Field(
+    neuromodulation_strength: float | None = Field(
         default=None,
         description="Neuromodulator concentration increase override in µM.",
     )
@@ -637,31 +608,31 @@ class SimulationConfig(BaseModel):
     Reference: https://sonata-extension.readthedocs.io/en/latest/sonata_simulation.html
     """
 
-    version: Optional[str] = Field(
+    version: str | None = Field(
         default=None,
         description="Config version (current: '2.4').",
     )
-    manifest: Optional[Dict[str, str]] = Field(
+    manifest: dict[str, str] | None = Field(
         default=None,
         description="Path variables used throughout the config (e.g. '${BASE_DIR}').",
     )
-    network: Optional[str] = Field(
+    network: str | None = Field(
         default="circuit_config.json",
         description="Path to the circuit configuration file.",
     )
-    target_simulator: Optional[str] = Field(
+    target_simulator: str | None = Field(
         default=None,
         description="Simulator to use (falls back to circuit_config.json value).",
     )
-    node_sets_file: Optional[str] = Field(
+    node_sets_file: str | None = Field(
         default=None,
         description="Path to a file defining additional node sets.",
     )
-    node_set: Optional[str] = Field(
+    node_set: str | None = Field(
         default=None,
         description="Node set to instantiate. Absence means all non-virtual nodes.",
     )
-    compartment_sets_file: Optional[str] = Field(
+    compartment_sets_file: str | None = Field(
         default=None,
         description="Path to compartment_sets.json.",
     )
@@ -670,27 +641,27 @@ class SimulationConfig(BaseModel):
         default_factory=Output,
         description="Output configuration (optional, has defaults).",
     )
-    conditions: Optional[Conditions] = Field(
+    conditions: Conditions | None = Field(
         default=None,
         description="Global experimental conditions.",
     )
-    inputs: Optional[Dict[str, AnyInput]] = Field(
+    inputs: dict[str, AnyInput] | None = Field(
         default=None,
         description="Named stimulus inputs keyed by user-defined name.",
     )
-    reports: Optional[Dict[str, Report]] = Field(
+    reports: dict[str, Report] | None = Field(
         default=None,
         description="Named report blocks keyed by user-defined name.",
     )
-    connection_overrides: Optional[List[ConnectionOverride]] = Field(
+    connection_overrides: list[ConnectionOverride] | None = Field(
         default=None,
         description="Ordered list of synaptic property overrides.",
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Free-form remarks about the simulation (not used for running).",
     )
-    beta_features: Optional[Dict[str, Any]] = Field(
+    beta_features: dict[str, Any] | None = Field(
         default=None,
         description="Experimental feature flags (not yet production-ready).",
     )

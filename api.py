@@ -18,18 +18,20 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
 from chatbot import chat_turn, extract_config, opening_message
-from data_model import SimulationConfig
+
+if TYPE_CHECKING:
+    from data_model import SimulationConfig
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -64,8 +66,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    config: Optional[dict] = None
-    error: Optional[str] = None
+    config: dict | None = None
+    error: str | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -73,8 +75,8 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    config: Optional[dict] = None
-    error: Optional[str] = None
+    config: dict | None = None
+    error: str | None = None
 
 
 class SessionInfo(BaseModel):
@@ -139,7 +141,7 @@ async def new_session():
             AIMessage(content=greeting),
         ],
         "config": None,
-        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "label": "New session",
     }
     return StartResponse(session_id=session_id, reply=greeting)
@@ -156,7 +158,7 @@ async def list_sessions():
                 label=s.get("label", "New session"),
                 created_at=s.get("created_at", ""),
                 has_config=s["config"] is not None,
-            )
+            ),
         )
     # Newest first
     result.sort(key=lambda x: x.created_at, reverse=True)
@@ -223,13 +225,11 @@ async def download(session_id: str):
             detail="No config generated yet for this session.",
         )
 
-    # Write to a temp file and serve it
-    out_path = Path(f"/tmp/simulation_config_{session_id}.json")
-    out_path.write_text(
-        json.dumps(session["config"], indent=2), encoding="utf-8"
-    )
-    return FileResponse(
-        path=out_path,
-        filename="simulation_config.json",
+    content = json.dumps(session["config"], indent=2)
+    return Response(
+        content=content,
         media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="simulation_config.json"',
+        },
     )

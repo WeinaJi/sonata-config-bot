@@ -20,3 +20,28 @@ dependencies = [
 dev = [
     "pytest>=8",
 ]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN",     # Missing type annotation
+    "INP001",  # Missing `__init__.py`
+    "D",       # pydocstyle
+    "CPY001",  # Missing copyright notice at top of file
+    "A002",    # Function argument is shadowing a Python builtin
+    "N802",    # Function name should be lowercase
+    "ERA001",  # comment-out code
+    "N803",    # Argument name should be lowercase
+    "S101",    # Use of `assert` detected
+    "EM101",  # raw-string-in-exception
+    "EM102",  # f-string-in-exception
+    "TRY003", # raise-vanilla-args
+    "TRY300", # try-consider-else
+    "PLR2004", # magic-value-comparison
+    "UP007", # non-pep604-annotation-union
+]
+[tool.ruff.lint.per-file-ignores]
+"chatbot.py" = ["T201"] # use print instead of log
