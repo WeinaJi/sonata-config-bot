@@ -26,7 +26,7 @@ from sqlalchemy.orm import DeclarativeBase, relationship
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://localhost/sonata_config_bot",
+    "postgresql+asyncpg://localhost/sonata_config_bot_db",
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False)

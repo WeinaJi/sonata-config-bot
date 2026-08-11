@@ -36,15 +36,25 @@ from data_model import SimulationConfig
 
 
 def _get_schema_text() -> str:
-    """Generate a compact JSON schema string from the Pydantic model."""
+    """Generate a compact JSON schema string from the Pydantic model, without descriptions."""
+
+    def _strip_descriptions(obj):
+        """Recursively remove 'description' and 'title' keys to reduce token count."""
+        if isinstance(obj, dict):
+            return {k: _strip_descriptions(v) for k, v in obj.items() if k not in ("description", "title", "examples")}
+        if isinstance(obj, list):
+            return [_strip_descriptions(item) for item in obj]
+        return obj
 
     schema = SimulationConfig.model_json_schema()
-    return json.dumps(schema, indent=2)
+    compact = _strip_descriptions(schema)
+    return json.dumps(compact, separators=(",", ":"))
 
 
 _SCHEMA_TEXT = _get_schema_text()
 
-SYSTEM_PROMPT = f"""\
+SYSTEM_PROMPT = (
+    """\
 You are an expert assistant for the SONATA neural circuit simulation framework
 (BBP extension). Your job is to help users build a valid SONATA
 simulation_config.json file by asking them questions in a friendly,
@@ -78,18 +88,16 @@ Important rules
 ---------------
 - Ask one topic at a time; do not overwhelm the user with many questions at once.
 - Use sensible defaults when the user is unsure (dt=0.025, celsius=34, v_init=-80).
-- When ready to produce the config, output exactly one fenced JSON block:
-  ```json
-  {{{{ ... }}}}
-  ```
+- When ready to produce the config, output exactly one fenced JSON block.
   Do not include any text before or after the JSON block when generating the final config.
 - Field names must match the JSON schema below EXACTLY (snake_case).
 - Enum values must be lowercase strings as defined in the schema.
 - ONLY use field names and types defined in the schema below. Do not invent fields.
 
 EXACT JSON SCHEMA (from data_model.py — this is the ground truth):
-{_SCHEMA_TEXT}
 """
+    + _SCHEMA_TEXT
+)
 
 EXTRACT_PROMPT = """\
 You are a data-extraction assistant. Given the conversation history below,
@@ -106,6 +114,21 @@ Rules:
 Conversation:
 {history}
 """
+
+FIX_PROMPT = """\
+The following JSON was generated for a SONATA simulation config but failed validation.
+
+INVALID JSON:
+{invalid_json}
+
+VALIDATION ERROR:
+{error}
+
+Fix the JSON so it passes validation. Return ONLY the corrected raw JSON — \
+no markdown fences, no explanation, no commentary.
+"""
+
+MAX_FIX_ATTEMPTS = 2
 
 # ---------------------------------------------------------------------------
 # Module-level LLM (initialised lazily)
@@ -133,7 +156,7 @@ def _invoke_with_retry(chain, kwargs: dict, retries: int = MAX_RETRIES) -> str:
 
             # Rate limit — fail immediately, retries won't help within the same minute
             if "rate_limit" in err_str or "429" in err_str:
-                raise RuntimeError(RATE_LIMIT_MSG) from exc
+                raise RuntimeError(err_str) from exc
 
             # Transient errors — retry with backoff
             is_retryable = any(keyword in err_str for keyword in ("timeout", "timed out", "connection", "503"))
@@ -176,6 +199,12 @@ def _build_chat_chain():
 def _build_extract_chain():
     llm = _get_llm()
     prompt = ChatPromptTemplate.from_template(EXTRACT_PROMPT)
+    return prompt | llm | StrOutputParser()
+
+
+def _build_fix_chain():
+    llm = _get_llm()
+    prompt = ChatPromptTemplate.from_template(FIX_PROMPT)
     return prompt | llm | StrOutputParser()
 
 
@@ -225,6 +254,35 @@ def validate_config(raw_json: str) -> tuple[SimulationConfig | None, str | None]
     return config, None
 
 
+def _try_fix_config(raw_json: str, error: str) -> tuple[SimulationConfig | None, str | None]:
+    """
+    Attempt to fix invalid JSON by sending it back to the LLM with the error.
+    Retries up to MAX_FIX_ATTEMPTS times.
+    """
+    chain = _build_fix_chain()
+    current_json = raw_json
+    current_error = error
+
+    for attempt in range(1, MAX_FIX_ATTEMPTS + 1):
+        logger.info("Auto-fix attempt %d/%d: %s", attempt, MAX_FIX_ATTEMPTS, current_error[:100])
+        try:
+            fixed = _invoke_with_retry(chain, {"invalid_json": current_json, "error": current_error})
+        except Exception as exc:
+            logger.exception("Fix attempt %d failed", attempt)
+            return None, f"Auto-fix LLM call failed: {exc}"
+
+        config, new_error = validate_config(fixed)
+        if config is not None:
+            logger.info("Auto-fix succeeded on attempt %d", attempt)
+            return config, None
+
+        # Prepare for next attempt
+        current_json = fixed
+        current_error = new_error or "Unknown error"
+
+    return None, f"Auto-fix failed after {MAX_FIX_ATTEMPTS} attempts. Last error: {current_error}"
+
+
 # ---------------------------------------------------------------------------
 # Core API functions
 # ---------------------------------------------------------------------------
@@ -254,7 +312,10 @@ def chat_turn(
     config: SimulationConfig | None = None
     json_block = extract_json_from_reply(reply)
     if json_block:
-        config, _ = validate_config(json_block)
+        config, error = validate_config(json_block)
+        if config is None and error:
+            # Auto-fix: send the error back to the LLM
+            config, _ = _try_fix_config(json_block, error)
 
     return reply, config
 
@@ -272,7 +333,13 @@ def extract_config(
     except Exception as exc:
         logger.exception("extract_config failed")
         return None, f"LLM request failed after {MAX_RETRIES} retries: {exc}"
-    return validate_config(raw)
+
+    config, error = validate_config(raw)
+    if config is not None:
+        return config, None
+
+    # Auto-fix: send the error back to the LLM
+    return _try_fix_config(raw, error or "Unknown validation error")
 
 
 def opening_message() -> str:
