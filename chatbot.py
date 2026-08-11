@@ -34,10 +34,21 @@ from data_model import SimulationConfig
 # Prompt constants
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
-You are an expert assistant for the SONATA neural circuit simulation framework.
-Your job is to help users build a valid SONATA simulation_config.json file by
-asking them questions in a friendly, conversational way.
+
+def _get_schema_text() -> str:
+    """Generate a compact JSON schema string from the Pydantic model."""
+
+    schema = SimulationConfig.model_json_schema()
+    return json.dumps(schema, indent=2)
+
+
+_SCHEMA_TEXT = _get_schema_text()
+
+SYSTEM_PROMPT = f"""\
+You are an expert assistant for the SONATA neural circuit simulation framework
+(BBP extension). Your job is to help users build a valid SONATA
+simulation_config.json file by asking them questions in a friendly,
+conversational way.
 
 SONATA simulation config key sections:
 - run        : tstop (ms), dt (ms), random_seed — all MANDATORY
@@ -69,11 +80,15 @@ Important rules
 - Use sensible defaults when the user is unsure (dt=0.025, celsius=34, v_init=-80).
 - When ready to produce the config, output exactly one fenced JSON block:
   ```json
-  { ... }
+  {{{{ ... }}}}
   ```
   Do not include any text before or after the JSON block when generating the final config.
-- Field names must match the SONATA spec exactly (snake_case).
-- Enum values must be lowercase strings as defined in the spec.
+- Field names must match the JSON schema below EXACTLY (snake_case).
+- Enum values must be lowercase strings as defined in the schema.
+- ONLY use field names and types defined in the schema below. Do not invent fields.
+
+EXACT JSON SCHEMA (from data_model.py — this is the ground truth):
+{_SCHEMA_TEXT}
 """
 
 EXTRACT_PROMPT = """\
