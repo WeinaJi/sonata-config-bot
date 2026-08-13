@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 # Agent
 from agent import agent_chat_turn as chat_turn, agent_opening_message as opening_message
+from chatbot import extract_config
 
 from db import (
     add_messages,
