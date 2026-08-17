@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 
 import libsonata
@@ -25,6 +24,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import ValidationError
 
+from config import GOOGLE_API_KEY, LLM_MODEL
 from data_model import SimulationConfig
 
 logger = logging.getLogger(__name__)
@@ -74,61 +74,6 @@ def validate_config(config_json: str) -> str:
     return "Valid. The config passes all validation checks."
 
 
-@tool
-def get_input_modules() -> str:
-    """List all valid SONATA input modules with their input_type."""
-    logger.info("Tool called: get_input_modules")
-    return """Available input modules:
-- linear (input_type: current_clamp) — continuous current injection
-- relative_linear (input_type: current_clamp) — current relative to threshold
-- pulse (input_type: current_clamp) — series of current pulses
-- sinusoidal (input_type: current_clamp) — sinusoidal current
-- subthreshold (input_type: current_clamp) — current adjusted below threshold
-- hyperpolarizing (input_type: current_clamp) — hyperpolarizing holding current
-- synapse_replay (input_type: spikes) — replay spikes from file
-- seclamp (input_type: voltage_clamp) — voltage clamp
-- noise (input_type: current_clamp) — current with random noise
-- shot_noise (input_type: current_clamp or conductance) — Poisson shot noise
-- relative_shot_noise (input_type: current_clamp or conductance) — relative shot noise
-- absolute_shot_noise (input_type: current_clamp or conductance) — absolute shot noise
-- ornstein_uhlenbeck (input_type: current_clamp or conductance) — OU process
-- relative_ornstein_uhlenbeck (input_type: current_clamp or conductance) — relative OU
-- spatially_uniform_e_field (input_type: extracellular_stimulation) — uniform E-field"""
-
-
-@tool
-def get_report_types() -> str:
-    """List all valid SONATA report types and their key fields."""
-    logger.info("Tool called: get_report_types")
-    return """Available report types:
-- compartment: each compartment reports separately (variable_name required)
-- summation: sum values across compartments (variable_name required, can be comma-separated)
-- synapse: each synapse reports separately (variable_name required)
-- lfp: contribution to LFP signal (electrodes_file required, variable_name NOT allowed)
-- compartment_set: report on specific compartment set (compartment_set field required)
-
-Common fields: type, dt, start_time, end_time (all mandatory)
-Optional: cells OR compartment_set (mutually exclusive, one required), sections, unit, file_name"""
-
-
-@tool
-def get_connection_override_fields() -> str:
-    """List all valid fields for connection_overrides entries."""
-    logger.info("Tool called: get_connection_override_fields")
-    return """Connection override fields:
-- name (mandatory): descriptive name
-- source (mandatory): presynaptic node_set
-- target (mandatory): postsynaptic node_set
-- weight (optional): conductance multiplier
-- spont_minis (optional): spontaneous mini rate
-- synapse_configure (optional): HOC snippet, use %s for synapse reference
-- modoverride (optional): synapse helper file prefix
-- synapse_delay_override (optional): override synaptic delay in ms
-- delay (optional): apply weight after this delay in ms
-- neuromodulation_dtc (optional): neuromodulator decay time constant in ms
-- neuromodulation_strength (optional): neuromodulator concentration increase in µM"""
-
-
 # ---------------------------------------------------------------------------
 # Agent system prompt
 # ---------------------------------------------------------------------------
@@ -159,6 +104,8 @@ Tool usage rules (IMPORTANT — minimize tool calls):
 Rules:
 - Ask ONE question at a time. Never combine multiple topics in a single response.
 - Wait for the user to answer before moving to the next topic.
+- If the user gives a wrong or invalid parameter, use retrieve_spec to look up the correct options
+  and propose the right one.
 - Use sensible defaults when the user is unsure (dt=0.025, celsius=34, v_init=-80).
 - When the config is valid, present it in a ```json code block.
 - Field names must be snake_case as defined in the SONATA spec.
@@ -175,14 +122,13 @@ _agent = None
 def _get_agent():
     global _agent  # noqa: PLW0603
     if _agent is None:
-        api_key = os.environ.get("GOOGLE_API_KEY", "")
-        if not api_key:
+        if not GOOGLE_API_KEY:
             raise OSError("GOOGLE_API_KEY not set. Get a free key at https://aistudio.google.com/apikey")
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash",
+            model=LLM_MODEL,
             temperature=0.2,
-            google_api_key=api_key,
+            google_api_key=GOOGLE_API_KEY,
         )
 
         # tools = [validate_config, retrieve_spec, get_input_modules, get_report_types, get_connection_override_fields]
@@ -284,3 +230,54 @@ def _extract_json_from_reply(text: str) -> str | None:
     """Return the first ```json ... ``` block from a reply, or None."""
     match = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL).search(text)
     return match.group(1).strip() if match else None
+
+
+def agent_extract_config(
+    history: list,
+) -> tuple[SimulationConfig | None, str | None]:
+    """
+    Ask the agent to generate and validate a SONATA config from the conversation.
+    Returns (config, None) on success, (None, error_message) on failure.
+    """
+    agent = _get_agent()
+    messages = [
+        *history,
+        HumanMessage(
+            content="Generate the complete SONATA simulation_config.json now. "
+            "Use the validate_config tool to check it before returning.",
+        ),
+    ]
+
+    try:
+        result = agent.invoke({"messages": messages})
+    except Exception as exc:
+        logger.exception("agent_extract_config failed")
+        return None, f"Agent failed: {exc}"
+
+    # Find the final AI reply
+    ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage) and not m.tool_calls]
+    if not ai_messages:
+        return None, "Agent produced no response."
+
+    content = ai_messages[-1].content
+    if isinstance(content, list):
+        reply = "".join(
+            block["text"] if isinstance(block, dict) else str(block)
+            for block in content
+            if (isinstance(block, dict) and block.get("type") == "text") or isinstance(block, str)
+        )
+    else:
+        reply = content
+
+    # Extract and validate JSON from the reply
+    json_block = _extract_json_from_reply(reply)
+    if not json_block:
+        logger.warning("agent_extract_config: no JSON block found in reply: %s", reply[:200])
+        return None, "Agent did not produce a JSON config block."
+
+    try:
+        data = json.loads(json_block)
+        config = SimulationConfig.model_validate(data)
+        return config, None
+    except (json.JSONDecodeError, ValidationError) as exc:
+        return None, str(exc)
