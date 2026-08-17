@@ -16,10 +16,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
+import libsonata
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import ValidationError
 
@@ -51,7 +53,6 @@ def validate_config(config_json: str) -> str:
         return f"Schema validation failed:\n{exc}"
 
     try:
-        import libsonata
         libsonata.SimulationConfig(config_json, "./")
     except Exception as exc:  # noqa: BLE001
         return f"libsonata validation failed: {exc}"
@@ -127,14 +128,18 @@ Conversation strategy:
 1. Ask for the three mandatory run parameters (tstop, dt, random_seed).
 2. Ask which node_set to simulate.
 3. Ask about conditions (temperature, v_init, spike_location).
-4. Ask if they want inputs (stimuli) — use get_input_modules tool if needed.
-5. Ask if they want reports — use get_report_types tool if needed.
+4. Ask if they want inputs (stimuli).
+5. Ask if they want reports.
 6. Always ask about connection_overrides.
 7. Once you have enough info, generate the JSON config.
 
-CRITICAL: Before returning a JSON config to the user, ALWAYS call the
-validate_config tool to check it. If validation fails, fix the errors
-and validate again until it passes. Never return invalid JSON to the user.
+Tool usage rules (IMPORTANT — minimize tool calls):
+- ONLY call validate_config once, after generating the final complete JSON.
+- Do NOT call validate_config for partial configs or during the conversation.
+- ONLY call get_input_modules, get_report_types, or get_connection_override_fields
+  if the user explicitly asks "what options are available" or seems confused.
+- Do NOT call info tools preemptively — you already know the SONATA spec.
+- If validate_config fails, fix the error and validate ONE more time, then stop.
 
 Rules:
 - Ask one topic at a time.
@@ -154,14 +159,14 @@ _agent = None
 def _get_agent():
     global _agent  # noqa: PLW0603
     if _agent is None:
-        api_key = os.environ.get("GROQ_API_KEY", "")
+        api_key = os.environ.get("GOOGLE_API_KEY", "")
         if not api_key:
-            raise OSError("GROQ_API_KEY not set. Get a free key at https://console.groq.com/")
+            raise OSError("GOOGLE_API_KEY not set. Get a free key at https://aistudio.google.com/apikey")
 
-        llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-3.5-flash-lite",
             temperature=0.2,
-            api_key=api_key,
+            google_api_key=api_key,
         )
 
         tools = [validate_config, get_input_modules, get_report_types, get_connection_override_fields]
@@ -189,7 +194,7 @@ def agent_chat_turn(
     agent = _get_agent()
 
     # Build messages for the agent
-    messages = list(history) + [HumanMessage(content=user_message)]
+    messages = [*history, HumanMessage(content=user_message)]
 
     try:
         result = agent.invoke({"messages": messages})
@@ -202,7 +207,19 @@ def agent_chat_turn(
 
     # Extract the final AI message (skip tool-call-only messages)
     ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage) and not m.tool_calls]
-    reply = ai_messages[-1].content if ai_messages else "No response generated."
+    if ai_messages:
+        content = ai_messages[-1].content
+        # Gemini may return content as a list of blocks
+        if isinstance(content, list):
+            reply = "".join(
+                block["text"] if isinstance(block, dict) else str(block)
+                for block in content
+                if (isinstance(block, dict) and block.get("type") == "text") or isinstance(block, str)
+            )
+        else:
+            reply = content
+    else:
+        reply = "No response generated."
 
     history.append(HumanMessage(content=user_message))
     history.append(AIMessage(content=reply))
@@ -224,11 +241,18 @@ def agent_opening_message() -> str:
     """Get the agent's opening greeting."""
     agent = _get_agent()
     try:
-        result = agent.invoke(
-            {"messages": [HumanMessage(content="Hello! I'd like to set up a SONATA simulation.")]}
-        )
+        result = agent.invoke({"messages": [HumanMessage(content="Hello! I'd like to set up a SONATA simulation.")]})
         ai_messages = [m for m in result["messages"] if isinstance(m, AIMessage)]
-        return ai_messages[-1].content if ai_messages else "Hello! Let's build a SONATA config."
+        if ai_messages:
+            content = ai_messages[-1].content
+            if isinstance(content, list):
+                return "".join(
+                    block["text"] if isinstance(block, dict) else str(block)
+                    for block in content
+                    if (isinstance(block, dict) and block.get("type") == "text") or isinstance(block, str)
+                )
+            return content
+        return "Hello! Let's build a SONATA config."
     except Exception as exc:
         logger.exception("agent_opening_message failed")
         return f"Hello! I'm ready to help you build a SONATA config. (Error: {exc})"
@@ -241,6 +265,5 @@ def agent_opening_message() -> str:
 
 def _extract_json_from_reply(text: str) -> str | None:
     """Return the first ```json ... ``` block from a reply, or None."""
-    import re
     match = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL).search(text)
     return match.group(1).strip() if match else None

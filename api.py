@@ -29,12 +29,12 @@ from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
+# LLM
 # from chatbot import chat_turn, extract_config, opening_message
-
 # Agent
-from agent import agent_chat_turn as chat_turn, agent_opening_message as opening_message
+from agent import agent_chat_turn as chat_turn
+from agent import agent_opening_message as opening_message
 from chatbot import extract_config
-
 from db import (
     add_messages,
     create_session,

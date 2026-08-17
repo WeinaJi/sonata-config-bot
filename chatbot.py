@@ -25,7 +25,7 @@ import libsonata
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import ValidationError
 
 from data_model import SimulationConfig
@@ -134,7 +134,7 @@ MAX_FIX_ATTEMPTS = 2
 # Module-level LLM (initialised lazily)
 # ---------------------------------------------------------------------------
 
-_state: dict[str, ChatGroq | None] = {"llm": None}
+_state: dict[str, ChatGoogleGenerativeAI | None] = {"llm": None}
 
 logger = logging.getLogger(__name__)
 
@@ -169,15 +169,15 @@ def _invoke_with_retry(chain, kwargs: dict, retries: int = MAX_RETRIES) -> str:
     return ""  # unreachable, satisfies type checker
 
 
-def _get_llm() -> ChatGroq:
+def _get_llm() -> ChatGoogleGenerativeAI:
     if _state["llm"] is None:
-        api_key = os.environ.get("GROQ_API_KEY", "")
+        api_key = os.environ.get("GOOGLE_API_KEY", "")
         if not api_key:
             raise OSError(
                 "GROQ_API_KEY environment variable is not set. Get a free key at https://console.groq.com/",
             )
-        _state["llm"] = ChatGroq(
-            model="llama-3.3-70b-versatile",
+        _state["llm"] = ChatGoogleGenerativeAI(
+            model="gemini-3.6-flash",
             temperature=0.2,
             api_key=api_key,
         )

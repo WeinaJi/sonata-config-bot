@@ -9,7 +9,7 @@ description = "Chatbot that generates SONATA simulation configuration JSON from 
 requires-python = ">=3.11"
 dependencies = [
     "langchain>=0.3",
-    "langchain-groq>=0.3",
+    "langchain-google-genai>=2.0",
     "langchain-community>=0.3",
     "langchain-text-splitters>=0.3",
     "pydantic>=2.7",
