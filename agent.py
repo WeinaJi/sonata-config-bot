@@ -1,7 +1,7 @@
 """
 SONATA Config Agent — ReAct agent with tool use.
 
-This is an alternative to chatbot.py. Instead of a fixed conversation chain
+This is an alternative to chat_chain.py. Instead of a fixed conversation chain
 with hardcoded fix logic, the LLM autonomously decides when to validate,
 fix errors, and return the final config.
 
@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Tools the agent can call
 # ---------------------------------------------------------------------------
+
+
+@tool
+def retrieve_spec(query: str) -> str:
+    """Search the SONATA spec documentation for relevant information.
+
+    Use this when you need exact field names, valid enum values,
+    or details about a specific section of the SONATA config.
+    """
+    logger.info("Tool called: retrieve_spec(%s)", query)
+    # lazy import to initialze the embedding call when needed
+    from rag import retrieve
+
+    return retrieve(query)
 
 
 @tool
@@ -126,7 +140,7 @@ simulation_config.json file through conversation.
 
 Conversation strategy:
 1. Ask for the three mandatory run parameters (tstop, dt, random_seed).
-2. Ask which node_set to simulate.
+2. Ask which node_set to simulate. Explain that leaving it empty means all non-virtual nodes will be loaded.
 3. Ask about conditions (temperature, v_init, spike_location).
 4. Ask if they want inputs (stimuli).
 5. Ask if they want reports.
@@ -136,13 +150,15 @@ Conversation strategy:
 Tool usage rules (IMPORTANT — minimize tool calls):
 - ONLY call validate_config once, after generating the final complete JSON.
 - Do NOT call validate_config for partial configs or during the conversation.
+- Use retrieve_spec if you need to look up exact field names, enum values, or
+  section details from the SONATA spec. Prefer this over guessing.
 - ONLY call get_input_modules, get_report_types, or get_connection_override_fields
   if the user explicitly asks "what options are available" or seems confused.
-- Do NOT call info tools preemptively — you already know the SONATA spec.
 - If validate_config fails, fix the error and validate ONE more time, then stop.
 
 Rules:
-- Ask one topic at a time.
+- Ask ONE question at a time. Never combine multiple topics in a single response.
+- Wait for the user to answer before moving to the next topic.
 - Use sensible defaults when the user is unsure (dt=0.025, celsius=34, v_init=-80).
 - When the config is valid, present it in a ```json code block.
 - Field names must be snake_case as defined in the SONATA spec.
@@ -164,12 +180,13 @@ def _get_agent():
             raise OSError("GOOGLE_API_KEY not set. Get a free key at https://aistudio.google.com/apikey")
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-3.5-flash-lite",
+            model="gemini-3.5-flash",
             temperature=0.2,
             google_api_key=api_key,
         )
 
-        tools = [validate_config, get_input_modules, get_report_types, get_connection_override_fields]
+        # tools = [validate_config, retrieve_spec, get_input_modules, get_report_types, get_connection_override_fields]
+        tools = [validate_config, retrieve_spec]
         _agent = create_react_agent(
             llm,
             tools,
@@ -179,7 +196,7 @@ def _get_agent():
 
 
 # ---------------------------------------------------------------------------
-# Public API (same interface as chatbot.py)
+# Public API (same interface as chat_chain.py)
 # ---------------------------------------------------------------------------
 
 
