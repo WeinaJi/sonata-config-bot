@@ -38,7 +38,6 @@ Browser (HTML/JS)  ──►  FastAPI (api.py)  ──►  LangGraph + Google Ge
 ### Prerequisites
 
 - Python 3.11+
-- PostgreSQL running locally
 - A free [Google AI API key](https://aistudio.google.com/apikey)
 
 ### Installation
@@ -47,19 +46,25 @@ Browser (HTML/JS)  ──►  FastAPI (api.py)  ──►  LangGraph + Google Ge
 pip install -e .
 ```
 
-### Setup database
-
+For PostgreSQL support (optional):
 ```bash
-createdb sonata_config_bot
+pip install -e ".[postgres]"
 ```
 
-Tables are auto-created on first server start.
+### Setup database
+
+SQLite is used by default — no setup needed. A `sonata_bot.db` file is created automatically.
+
+For PostgreSQL (optional):
+```bash
+createdb sonata_config_bot
+export DATABASE_URL=postgresql+asyncpg://localhost/sonata_config_bot
+```
 
 ### Run
 
 ```bash
 export GOOGLE_API_KEY=<your_key>
-export DATABASE_URL=postgresql+asyncpg://localhost/sonata_config_bot
 uvicorn api:app --reload
 ```
 
@@ -101,7 +106,8 @@ The chain mode uses a simpler approach with a self-healing fix loop instead of t
 - Subsequent runs load from disk instantly — zero API calls
 
 ### Session persistence (`db.py`)
-- PostgreSQL via SQLAlchemy async
+- SQLite by default (zero setup, just a file)
+- PostgreSQL supported via `DATABASE_URL` env var
 - Sessions and messages survive server restarts
 - Sessions listed in the UI sidebar with labels and timestamps
 
