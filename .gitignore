@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env*/
+
+# Linter / test caches
+.ruff_cache/
+.tox/
+.pytest_cache/
+.mypy_cache/
+
+# Database (generated at runtime)
+*.db
+sonata_bot.db
+
+# RAG generated artifacts
+faiss_index/
+spec_cache.txt
+
+# Environment / secrets
+.env
+
+# OS
+.DS_Store
