@@ -16,7 +16,7 @@ You describe the simulation you want in plain English via a chat interface. The 
 ## Architecture
 
 ```
-Browser (HTML/JS)  ──►  FastAPI (api.py)  ──►  LangGraph + Google Gemini (agent.py / chat_chain.py)
+FontEnd (React + Vite)  ──►  FastAPI (api.py)  ──►  LangGraph + Google Gemini (agent.py / chat_chain.py)
                                 │                    │                │
                                 ▼                    ▼                ▼
                         PostgreSQL (db.py)    RAG context        Pydantic + libsonata
@@ -65,7 +65,12 @@ export DATABASE_URL=postgresql+asyncpg://localhost/sonata_config_bot
 
 ```bash
 export GOOGLE_API_KEY=<your_key>
-uvicorn api:app --reload
+# create front end (for the first time)
+npm create vite@latest frontend -- --template react
+# start front end
+npm run dev
+# start back end
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Open http://localhost:8000 in your browser.

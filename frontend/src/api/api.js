@@ -1,3 +1,6 @@
+// For remote deployment or local
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
 // Create a new chat session
 export async function createSession() {
   const response = await fetch("/session", {
