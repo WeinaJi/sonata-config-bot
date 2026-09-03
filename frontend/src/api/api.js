@@ -1,9 +1,9 @@
-// For remote deployment or local
+// API base URL — empty for local (uses Vite proxy), full URL for production
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 // Create a new chat session
 export async function createSession() {
-  const response = await fetch("/session", {
+  const response = await fetch(`${API_BASE_URL}/session`, {
     method: "POST",
   });
 
@@ -17,7 +17,7 @@ export async function createSession() {
 
 // Get all sessions
 export async function getSessions() {
-  const response = await fetch("/sessions");
+  const response = await fetch(`${API_BASE_URL}/sessions`);
 
   if (!response.ok) {
     throw new Error("Failed to load sessions");
@@ -29,7 +29,7 @@ export async function getSessions() {
 
 // Get messages for a session
 export async function getMessages(sessionId) {
-  const response = await fetch(`/session/${sessionId}/messages`);
+  const response = await fetch(`${API_BASE_URL}/session/${sessionId}/messages`);
 
   if (!response.ok) {
     throw new Error("Failed to load messages");
@@ -41,7 +41,7 @@ export async function getMessages(sessionId) {
 
 // Send a chat message
 export async function sendChat(sessionId, message) {
-  const response = await fetch("/chat", {
+  const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -62,7 +62,7 @@ export async function sendChat(sessionId, message) {
 
 // Generate the JSON configuration
 export async function generateConfig(sessionId) {
-  const response = await fetch("/generate", {
+  const response = await fetch(`${API_BASE_URL}/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -82,5 +82,5 @@ export async function generateConfig(sessionId) {
 
 // URL for downloading the generated config
 export function getDownloadUrl(sessionId) {
-  return `/download/${sessionId}`;
+  return `${API_BASE_URL}/download/${sessionId}`;
 }
