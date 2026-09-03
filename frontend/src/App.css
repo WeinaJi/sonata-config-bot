@@ -428,3 +428,176 @@ textarea {
   background: #2eaa6f;
   box-shadow: 0 0 6px #2eaa6f;
 }
+
+
+/* Mobile layout --------------------------------------------------------- */
+
+@media (max-width: 780px) {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  .app {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  .header {
+    height: auto;
+    min-height: 64px;
+    gap: 12px;
+    padding: 10px 14px;
+  }
+
+  .brand {
+    min-width: 0;
+    gap: 9px;
+  }
+
+  .logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    font-size: 17px;
+  }
+
+  .brand h1 {
+    overflow: hidden;
+    font-size: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .brand p {
+    display: none;
+  }
+
+  .new-session-button {
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .main {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar {
+    display: block;
+    flex: 0 0 auto;
+    max-height: 170px;
+    padding: 14px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid #dce0e8;
+  }
+
+  .sidebar h2 {
+    margin-bottom: 8px;
+  }
+
+  .session-item {
+    min-height: 44px;
+    margin-bottom: 4px;
+    padding: 8px 10px;
+  }
+
+  .chat-panel {
+    flex: 1 1 auto;
+    min-height: 55dvh;
+  }
+
+  .messages {
+    min-height: 0;
+    padding: 16px 12px;
+  }
+
+  .message-row {
+    max-width: 94%;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .message-content {
+    padding: 10px 12px;
+    line-height: 1.45;
+  }
+
+  .chat-input-area {
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .chat-input-area textarea {
+    min-height: 82px;
+    font-size: 16px;
+  }
+
+  .chat-buttons {
+    grid-template-columns: 1fr 1fr;
+    display: grid;
+    gap: 8px;
+  }
+
+  .chat-buttons button {
+    min-height: 44px;
+    padding: 9px 10px;
+  }
+
+  .json-panel {
+    display: flex;
+    flex: 0 0 auto;
+    min-height: 260px;
+    max-height: 360px;
+    border-top: 1px solid #dce0e8;
+    border-left: 0;
+  }
+
+  .json-header {
+    min-height: 52px;
+    height: auto;
+    padding: 8px 12px;
+  }
+
+  .download-button {
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+
+  .json-content {
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .json-display {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 380px) {
+  .header {
+    padding-inline: 10px;
+  }
+
+  .new-session-button {
+    max-width: 105px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-buttons {
+    grid-template-columns: 1fr;
+  }
+}
