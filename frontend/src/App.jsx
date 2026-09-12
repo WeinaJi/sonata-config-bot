@@ -199,7 +199,15 @@ async function handleGenerateConfig() {
           <div>
             <h1>SONATA Config Chatbot</h1>
             <p>
-              Describe your simulation — get a valid JSON config
+              Describe your neuroscience simulation — generate a valid {" "}
+                <a
+                  href="https://sonata-extension.readthedocs.io/en/latest/sonata_simulation.html"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  SONATA configuration
+                </a>{" "}
+                 JSON file
             </p>
           </div>
         </div>
