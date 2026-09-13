@@ -18,6 +18,7 @@ function App() {
   const [generating, setGenerating] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const messageInputRef = useRef(null);
 
   async function newSession() {
     try {
@@ -189,6 +190,12 @@ async function handleGenerateConfig() {
       behavior: "smooth",
     });
   }, [messages, typing]);
+
+  useEffect(() => {
+    if (sessionId && !loading && !sending) {
+      messageInputRef.current?.focus({ preventScroll: true });
+    }
+  }, [sessionId, loading, sending]);
   return (
     <div className="app">
       {/* Header */}
@@ -315,6 +322,7 @@ async function handleGenerateConfig() {
 
           <div className="chat-input-area">
             <textarea
+  ref={messageInputRef}
   placeholder={
     sessionId
       ? "Describe your simulation..."
