@@ -25,7 +25,7 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import ValidationError
 
 from config import GOOGLE_API_KEY, LLM_MODEL
-from data_model import SimulationConfig
+from data_model import ConnectionOverride, SimulationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,56 @@ def validate_config(config_json: str) -> str:
     return "Valid. The config passes all validation checks."
 
 
+@tool
+def get_input_modules() -> str:
+    """List valid SONATA input modules and their required fields.
+
+    Use this when the user asks which stimulus/input types are available or
+    needs help choosing an input module. The result is read from the installed
+    libsonata parser bindings.
+    """
+    logger.info("Tool called: get_input_modules")
+
+    module = libsonata.SimulationConfig.InputBase.Module
+
+    modules = list(module.__members__.keys())
+
+    return json.dumps(modules)
+
+
+@tool
+def get_report_types() -> str:
+    """List valid SONATA report types and report field requirements.
+
+    Use this when the user asks which report types are available or needs help
+    configuring a report. The result is read from the installed libsonata
+    parser bindings.
+    """
+    logger.info("Tool called: get_report_types")
+
+    types = list(libsonata.SimulationConfig.Report.Type.__members__.keys())
+
+    return json.dumps(types)
+
+
+@tool
+def get_connection_override_fields() -> str:
+    """List fields supported by a SONATA connection override.
+
+    Use this when the user asks what can be changed in connection_overrides or
+    needs help choosing an override property.
+    """
+    logger.info("Tool called: get_connection_override_fields")
+
+    fields = ConnectionOverride.model_fields
+    result = {
+        "required_fields": [name for name, field in fields.items() if field.is_required()],
+        "optional_fields": {name: field.description or "" for name, field in fields.items() if not field.is_required()},
+        "meaning": "Each override applies changes from a source node set to a target node set.",
+    }
+    return json.dumps(result, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # Agent system prompt
 # ---------------------------------------------------------------------------
@@ -97,8 +147,14 @@ Tool usage rules (IMPORTANT — minimize tool calls):
 - Do NOT call validate_config for partial configs or during the conversation.
 - Use retrieve_spec if you need to look up exact field names, enum values, or
   section details from the SONATA spec. Prefer this over guessing.
-- ONLY call get_input_modules, get_report_types, or get_connection_override_fields
-  if the user explicitly asks "what options are available" or seems confused.
+  But do NOT call retrieve_spec for a simple list of input modules, report types,
+  or connection override fields.
+- Use get_input_modules when the user asks about available stimulus types or
+  needs help choosing an input module.
+- Use get_report_types when the user asks about available report types or report requirements.
+- Use get_connection_override_fields when the user asks what connection properties can be overridden.
+- Call these lookup tools only when the user asks for options or seems confused;
+  do not call them on every turn.
 - If validate_config fails, fix the error and validate ONE more time, then stop.
 
 Rules:
@@ -131,8 +187,13 @@ def _get_agent():
             google_api_key=GOOGLE_API_KEY,
         )
 
-        # tools = [validate_config, retrieve_spec, get_input_modules, get_report_types, get_connection_override_fields]
-        tools = [validate_config, retrieve_spec]
+        tools = [
+            validate_config,
+            retrieve_spec,
+            get_input_modules,
+            get_report_types,
+            get_connection_override_fields,
+        ]
         _agent = create_react_agent(
             llm,
             tools,

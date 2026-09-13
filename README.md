@@ -95,8 +95,10 @@ The chain mode uses a simpler approach with a self-healing fix loop instead of t
 ## Features
 
 ### Agent mode (`agent.py`) — default
-- LangGraph ReAct agent with tools: `validate_config`, `retrieve_spec`, `get_input_modules`, `get_report_types`, `get_connection_override_fields`
-- LLM decides autonomously when to validate and how to fix errors
+- LangGraph ReAct agent with local lookup tools: `validate_config`, `retrieve_spec`, `get_input_modules`, `get_report_types`, and `get_connection_override_fields`
+- `get_input_modules` and `get_report_types` inspect the local libsonata parser bindings; `get_connection_override_fields` inspects the local Pydantic schema
+- Lookup tools do not directly call an LLM or embedding service, although using one through the agent may require an additional Gemini turn
+- LLM decides autonomously when to retrieve information, validate, and fix errors
 - Requires a model with reliable tool calling (Google Gemini recommended)
 
 ### Chain mode (`chat_chain.py`) — alternative
