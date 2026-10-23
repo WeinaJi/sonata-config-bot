@@ -1,0 +1,40 @@
+services:
+  app:
+    image: sonata-config-bot-app # name for the built image (default would be docker-app)
+    build:
+      context: .. # repo root, so the Dockerfile can COPY the source
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?Set GOOGLE_API_KEY in your shell or in a .env file}
+      DATABASE_URL: postgresql+asyncpg://sonata:sonata@db:5432/sonata_config_bot
+    volumes:
+      - faiss_index:/app/faiss_index # keep the RAG index across rebuilds
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: sonata-config-bot-db
+    build:
+      # Thin wrapper so the image gets our own name; identical to the official image
+      dockerfile_inline: FROM postgres:16-alpine
+    environment:
+      # Local development credentials only
+      POSTGRES_USER: sonata
+      POSTGRES_PASSWORD: sonata
+      POSTGRES_DB: sonata_config_bot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonata -d sonata_config_bot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  faiss_index:

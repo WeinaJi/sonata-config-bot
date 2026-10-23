@@ -75,6 +75,18 @@ uvicorn api:app --reload --host 0.0.0.0 --port 8000
 
 Open http://localhost:8000 in your browser.
 
+### Run with Docker
+
+Runs the backend (serving the built frontend) and PostgreSQL:
+
+```bash
+export GOOGLE_API_KEY=<your_key>   # or put it in docker/.env
+docker compose -f docker/docker-compose.yml up --build
+docker exec -it <postgres_container_id> psql -U sonata -d sonata_config_bot # check the db
+```
+
+Open http://localhost:8000. Sessions and the RAG index are kept in Docker volumes; `docker compose -f docker/docker-compose.yml down -v` wipes them.
+
 ### CLI mode
 
 ```bash

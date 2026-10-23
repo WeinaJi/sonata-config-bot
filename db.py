@@ -46,7 +46,7 @@ class Session(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     label = Column(String(200), default="New session")
     config_json = Column(Text, nullable=True)  # stored as JSON string
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     messages = relationship("Message", back_populates="session", order_by="Message.created_at")
 
@@ -68,7 +68,7 @@ class Message(Base):
     session_id = Column(String(36), ForeignKey("sessions.id"), nullable=False)
     role = Column(String(20), nullable=False)  # "user" or "assistant"
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     session = relationship("Session", back_populates="messages")
 

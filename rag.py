@@ -129,8 +129,8 @@ def _build_index() -> FAISS:
 def _get_store() -> FAISS:
     global _store  # noqa: PLW0603
     if _store is None:
-        # Try loading from disk first
-        if FAISS_INDEX_DIR.exists():
+        # Try loading from disk first (check the file, not the dir — a mounted volume creates an empty dir)
+        if (FAISS_INDEX_DIR / "index.faiss").exists():
             logger.info("Loading FAISS index from disk: %s", FAISS_INDEX_DIR)
             embeddings = _get_embeddings()
             _store = FAISS.load_local(
