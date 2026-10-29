@@ -80,6 +80,29 @@ def _load_spec_text() -> str:
 
 
 BATCH_SIZE = 20
+BATCH_PAUSE_SECONDS = 15
+MAX_RETRIES = 3
+RATE_LIMIT_WAIT_SECONDS = 60  # free-tier quota is per minute
+
+
+def _embed_batch_with_retry(batch: list, embeddings: GoogleGenerativeAIEmbeddings) -> FAISS:
+    """Embed one batch, waiting and retrying if the API rate limit (429) is hit."""
+    import time
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return FAISS.from_documents(batch, embeddings)
+        except Exception as exc:
+            if "RESOURCE_EXHAUSTED" not in str(exc) or attempt == MAX_RETRIES:
+                raise
+            logger.warning(
+                "Embedding rate limit hit (attempt %d/%d), waiting %ds",
+                attempt,
+                MAX_RETRIES,
+                RATE_LIMIT_WAIT_SECONDS,
+            )
+            time.sleep(RATE_LIMIT_WAIT_SECONDS)
+    raise RuntimeError("unreachable")
 
 
 def _build_index() -> FAISS:
@@ -110,14 +133,14 @@ def _build_index() -> FAISS:
     for i in range(0, len(chunks), BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
         logger.info("Embedding batch %d-%d of %d", i, i + len(batch), len(chunks))
+        batch_store = _embed_batch_with_retry(batch, embeddings)
         if store is None:
-            store = FAISS.from_documents(batch, embeddings)
+            store = batch_store
         else:
-            batch_store = FAISS.from_documents(batch, embeddings)
             store.merge_from(batch_store)
-        # Pause between batches to stay under rate limit
+        # Pause between batches to stay under rate limit (20 chunks / 15 s ≈ 80 per minute)
         if i + BATCH_SIZE < len(chunks):
-            time.sleep(10)
+            time.sleep(BATCH_PAUSE_SECONDS)
 
     # Save to disk for next time
     store.save_local(str(FAISS_INDEX_DIR))

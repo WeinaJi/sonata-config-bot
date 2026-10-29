@@ -65,15 +65,16 @@ export DATABASE_URL=postgresql+asyncpg://localhost/sonata_config_bot
 
 ```bash
 export GOOGLE_API_KEY=<your_key>
-# create front end (for the first time)
-npm create vite@latest frontend -- --template react
-# start front end
-npm run dev
 # start back end
 uvicorn api:app --reload --host 0.0.0.0 --port 8000
+
+# in a second terminal: start front end
+cd frontend
+npm install   # first time only
+npm run dev
 ```
 
-Open http://localhost:8000 in your browser.
+Open http://localhost:5173 in your browser (Vite proxies API calls to the backend on port 8000).
 
 ### Run with Docker
 
