@@ -1,12 +1,12 @@
 """
 RAG module — Retrieval-Augmented Generation for SONATA spec context.
 
-Loads the SONATA simulation config spec, chunks it, embeds with Google's
-embedding model, stores in FAISS, and exposes a `retrieve(query)` function
-that returns the most relevant spec chunks for a given query.
+Loads the SONATA simulation config spec, chunks it, embeds it locally with
+FastEmbed (ONNX, no API calls), stores in FAISS, and exposes a `retrieve(query)`
+function that returns the most relevant spec chunks for a given query.
 
-First call builds the index (requires GOOGLE_API_KEY).
-Subsequent calls load from disk cache — zero API calls, instant startup.
+First call downloads the embedding model (~65 MB, cached) and builds the index
+in a few seconds. Subsequent calls load the index from disk.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ import os
 from pathlib import Path
 
 from langchain_community.document_loaders import WebBaseLoader
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = logging.getLogger(__name__)
@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 SPEC_URL = "https://sonata-extension.readthedocs.io/en/latest/sonata_simulation.html"
 SPEC_LOCAL_FALLBACK = Path(__file__).parent / "spec_cache.txt"
-FAISS_INDEX_DIR = Path(__file__).parent / "faiss_index"
-
-EMBEDDING_MODEL = "models/gemini-embedding-001"
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+# One index per embedding model — vectors from different models are not compatible
+FAISS_INDEX_DIR = Path(__file__).parent / "faiss_index" / EMBEDDING_MODEL.replace("/", "__")
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 TOP_K = 4  # number of chunks to retrieve per query
@@ -40,21 +40,17 @@ TOP_K = 4  # number of chunks to retrieve per query
 # ---------------------------------------------------------------------------
 
 _store: FAISS | None = None
-_embeddings: GoogleGenerativeAIEmbeddings | None = None
+_embeddings: FastEmbedEmbeddings | None = None
 
 
-def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
+def _get_embeddings() -> FastEmbedEmbeddings:
     global _embeddings  # noqa: PLW0603
     if _embeddings is None:
-        api_key = os.environ.get("GOOGLE_API_KEY", "")
-        if not api_key:
-            raise OSError(
-                "GOOGLE_API_KEY environment variable is not set. Get a free key at https://aistudio.google.com/apikey",
-            )
-        logger.info("Using Google embedding model: %s", EMBEDDING_MODEL)
-        _embeddings = GoogleGenerativeAIEmbeddings(
-            model=EMBEDDING_MODEL,
-            google_api_key=api_key,
+        logger.info("Using local embedding model: %s", EMBEDDING_MODEL)
+        # cache_dir=None uses FastEmbed's default; set FASTEMBED_CACHE_DIR to keep the model somewhere persistent
+        _embeddings = FastEmbedEmbeddings(
+            model_name=EMBEDDING_MODEL,
+            cache_dir=os.environ.get("FASTEMBED_CACHE_DIR"),
         )
     return _embeddings
 
@@ -79,32 +75,6 @@ def _load_spec_text() -> str:
     return text
 
 
-BATCH_SIZE = 20
-BATCH_PAUSE_SECONDS = 15
-MAX_RETRIES = 3
-RATE_LIMIT_WAIT_SECONDS = 60  # free-tier quota is per minute
-
-
-def _embed_batch_with_retry(batch: list, embeddings: GoogleGenerativeAIEmbeddings) -> FAISS:
-    """Embed one batch, waiting and retrying if the API rate limit (429) is hit."""
-    import time
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            return FAISS.from_documents(batch, embeddings)
-        except Exception as exc:
-            if "RESOURCE_EXHAUSTED" not in str(exc) or attempt == MAX_RETRIES:
-                raise
-            logger.warning(
-                "Embedding rate limit hit (attempt %d/%d), waiting %ds",
-                attempt,
-                MAX_RETRIES,
-                RATE_LIMIT_WAIT_SECONDS,
-            )
-            time.sleep(RATE_LIMIT_WAIT_SECONDS)
-    raise RuntimeError("unreachable")
-
-
 def _build_index() -> FAISS:
     """Build the FAISS vector store from spec chunks."""
     text = _load_spec_text()
@@ -124,23 +94,8 @@ def _build_index() -> FAISS:
     chunks = splitter.create_documents([text, schema_text])
     logger.info("Built %d chunks from spec + schema", len(chunks))
 
-    embeddings = _get_embeddings()
-
-    # Embed in batches to avoid rate limits (free tier: 100 req/min)
-    import time
-
-    store = None
-    for i in range(0, len(chunks), BATCH_SIZE):
-        batch = chunks[i : i + BATCH_SIZE]
-        logger.info("Embedding batch %d-%d of %d", i, i + len(batch), len(chunks))
-        batch_store = _embed_batch_with_retry(batch, embeddings)
-        if store is None:
-            store = batch_store
-        else:
-            store.merge_from(batch_store)
-        # Pause between batches to stay under rate limit (20 chunks / 15 s ≈ 80 per minute)
-        if i + BATCH_SIZE < len(chunks):
-            time.sleep(BATCH_PAUSE_SECONDS)
+    # Local embedding: no rate limits, so embed all chunks in one go
+    store = FAISS.from_documents(chunks, _get_embeddings())
 
     # Save to disk for next time
     store.save_local(str(FAISS_INDEX_DIR))

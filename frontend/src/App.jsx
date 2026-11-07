@@ -180,7 +180,11 @@ async function handleGenerateConfig() {
   }
 }
 
+  // StrictMode runs mount effects twice in dev; guard so only one session is created
+  const initialized = useRef(false);
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
     newSession();
     loadSessions();
   }, []);

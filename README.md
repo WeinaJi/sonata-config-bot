@@ -120,9 +120,9 @@ The chain mode uses a simpler approach with a self-healing fix loop instead of t
 - Self-healing: if generated JSON fails validation, sends the error back to the LLM for automatic fix (up to 2 retries)
 
 ### RAG (`rag.py`)
-- Embeds the SONATA spec + Pydantic JSON schema using Google Gemini Embeddings
-- Stores vectors in FAISS with disk caching (`faiss_index/`)
-- First run builds the index (takes ~30s due to rate limit batching)
+- Embeds the SONATA spec + Pydantic JSON schema locally with FastEmbed (`BAAI/bge-small-en-v1.5`, no API key or rate limits)
+- Stores vectors in FAISS with disk caching (`faiss_index/<model>/`)
+- First run downloads the model (~65 MB) and builds the index in a few seconds
 - Subsequent runs load from disk instantly — zero API calls
 
 ### Session persistence (`db.py`)

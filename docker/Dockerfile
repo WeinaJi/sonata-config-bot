@@ -16,13 +16,17 @@ RUN npm run build -- --base=/static/
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    FASTEMBED_CACHE_DIR=/app/.fastembed_cache
 
 WORKDIR /app
 
 COPY pyproject.toml ./
 COPY *.py ./
 RUN pip install --no-cache-dir ".[postgres]"
+
+# Download the local embedding model at build time so the container starts ready
+RUN python -c "from rag import _get_embeddings; _get_embeddings()"
 
 COPY --from=frontend /frontend/dist ./static
 
