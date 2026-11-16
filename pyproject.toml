@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["api", "agent", "chat_chain", "config", "data_model", "db", "rag"]
+py-modules = ["api", "agent", "auth", "chat_chain", "config", "data_model", "db", "rag"]
 
 [project]
 name = "sonata-config-bot"
@@ -26,6 +26,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "aiosqlite>=0.20",
     "langgraph>=0.2",
+    "httpx>=0.27",
+    "itsdangerous>=2.1",
 ]
 
 [project.optional-dependencies]

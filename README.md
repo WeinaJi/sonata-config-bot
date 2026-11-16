@@ -30,6 +30,7 @@ FontEnd (React + Vite)  ──►  FastAPI (api.py)  ──►  LangGraph + Goog
 | `agent.py` | LangGraph ReAct agent with tool calling (alternative to chat_chain.py) |
 | `rag.py` | RAG module — embeds SONATA spec + schema into FAISS, retrieves relevant context per query |
 | `api.py` | FastAPI server with session management and REST endpoints |
+| `auth.py` | GitHub OAuth login, session cookie, and the `get_current_user` dependency |
 | `db.py` | SQLAlchemy async models for PostgreSQL session persistence |
 | `static/index.html` | Browser UI — session sidebar, chat panel, JSON preview + download |
 
@@ -61,10 +62,34 @@ createdb sonata_config_bot
 export DATABASE_URL=postgresql+asyncpg://localhost/sonata_config_bot
 ```
 
+### Set up GitHub login
+
+The app requires signing in with GitHub (OAuth). Create an OAuth App once at
+**GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**:
+
+- **Homepage URL:** `http://localhost:8000`
+- **Authorization callback URL:** `http://localhost:8000/auth/callback`
+
+Copy the **Client ID** and generate a **Client secret**. The same app works for both the
+dev setup and Docker (cookies are per host, not per port).
+
+| Env var | Required | Meaning |
+|---|---|---|
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | yes | From the OAuth App |
+| `SESSION_SECRET` | recommended | Signs the session cookie; without it, logins reset on restart. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `GITHUB_REDIRECT_URI` | dev only | `http://localhost:8000/auth/callback` when using the Vite dev server |
+| `FRONTEND_URL` | dev only | Where to land after login: `http://localhost:5173` for the Vite dev server (default `/`) |
+| `COOKIE_SECURE` | production | `true` to send the cookie over HTTPS only |
+
+Sessions are private: each user only sees and opens their own. Sessions created before
+login existed have no owner and are no longer listed.
+
 ### Run
 
 ```bash
 export GOOGLE_API_KEY=<your_key>
+export GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret> SESSION_SECRET=<random>
+export GITHUB_REDIRECT_URI=http://localhost:8000/auth/callback FRONTEND_URL=http://localhost:5173
 # start back end
 uvicorn api:app --reload --host 0.0.0.0 --port 8000
 
@@ -81,7 +106,8 @@ Open http://localhost:5173 in your browser (Vite proxies API calls to the backen
 Runs the backend (serving the built frontend) and PostgreSQL:
 
 ```bash
-export GOOGLE_API_KEY=<your_key>   # or put it in docker/.env
+export GOOGLE_API_KEY=<your_key>   # or put these in docker/.env
+export GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret> SESSION_SECRET=<random>
 docker compose -f docker/docker-compose.yml up --build
 docker exec -it <postgres_container_id> psql -U sonata -d sonata_config_bot # check the db
 ```

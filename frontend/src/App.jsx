@@ -1,9 +1,16 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
 
-import { createSession, sendChat, getSessions, getMessages, generateConfig, getDownloadUrl,} from "./api/api";
+import { createSession, sendChat, getSessions, getMessages, generateConfig, getDownloadUrl,
+  getMe, getLoginUrl, logout, UnauthorizedError,} from "./api/api";
+
+const GITHUB_MARK_PATH =
+  "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z";
 
 function App() {
+  // undefined = still checking, null = logged out, object = logged-in GitHub user
+  const [user, setUser] = useState(undefined);
+
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +26,28 @@ function App() {
 
   const messagesEndRef = useRef(null);
   const messageInputRef = useRef(null);
+
+  // A 401 means the session cookie is missing or expired: show the login screen
+  function handleUnauthorized(error) {
+    if (error instanceof UnauthorizedError) {
+      setUser(null);
+      return true;
+    }
+    return false;
+  }
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch (error) {
+      console.error(error);
+    }
+    setUser(null);
+    setSessionId(null);
+    setMessages([]);
+    setSessions([]);
+    setConfig(null);
+  }
 
   async function newSession() {
     try {
@@ -38,6 +67,7 @@ function App() {
         },
       ]);
     } catch (error) {
+      if (handleUnauthorized(error)) return;
       console.error(error);
 
       setMessages([
@@ -83,6 +113,7 @@ async function handleSendMessage() {
       },
     ]);
   } catch (error) {
+    if (handleUnauthorized(error)) return;
     console.error(error);
 
     setMessages((previous) => [
@@ -110,6 +141,7 @@ async function loadSessions() {
     const data = await getSessions();
     setSessions(data);
   } catch (error) {
+    if (handleUnauthorized(error)) return;
     console.error("Failed to load sessions:", error);
   }
 }
@@ -153,6 +185,7 @@ async function switchSession(sessionIdToLoad) {
       setConfig(null);
     }
   } catch (error) {
+    if (handleUnauthorized(error)) return;
     console.error("Failed to load session:", error);
     setConfig(null);
   } finally {
@@ -174,6 +207,7 @@ async function handleGenerateConfig() {
       setConfig(data.config);
     }
   } catch (error) {
+    if (handleUnauthorized(error)) return;
     console.error("Failed to generate config:", error);
   } finally {
     setGenerating(false);
@@ -185,8 +219,18 @@ async function handleGenerateConfig() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    newSession();
-    loadSessions();
+    getMe()
+      .then((me) => {
+        setUser(me);
+        if (me) {
+          newSession();
+          loadSessions();
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to check login:", error);
+        setUser(null);
+      });
   }, []);
 
     useEffect(() => {
@@ -200,6 +244,29 @@ async function handleGenerateConfig() {
       messageInputRef.current?.focus({ preventScroll: true });
     }
   }, [sessionId, loading, sending]);
+
+  if (user === undefined) {
+    return <div className="auth-screen" />;
+  }
+
+  if (user === null) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="logo">S</div>
+          <h1>SONATA Config Chatbot</h1>
+          <p>Sign in to build simulation configs and keep your sessions.</p>
+          <a className="github-login-button" href={getLoginUrl()}>
+            <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d={GITHUB_MARK_PATH} />
+            </svg>
+            Sign in with GitHub
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       {/* Header */}
@@ -223,13 +290,26 @@ async function handleGenerateConfig() {
           </div>
         </div>
 
-        <button
-          className="new-session-button"
-          onClick={newSession}
-          disabled={loading}
-        >
-          + New session
-        </button>
+        <div className="header-actions">
+          <button
+            className="new-session-button"
+            onClick={newSession}
+            disabled={loading}
+          >
+            + New session
+          </button>
+
+          <div className="user-chip" title={user.name || user.login}>
+            {user.avatar_url && (
+              <img className="user-avatar" src={user.avatar_url} alt="" />
+            )}
+            <span className="user-login">{user.login}</span>
+          </div>
+
+          <button className="logout-button" onClick={handleLogout}>
+            Log out
+          </button>
+        </div>
       </header>
 
       {/* Main */}

@@ -9,6 +9,10 @@ services:
     environment:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?Set GOOGLE_API_KEY in your shell or in a .env file}
       DATABASE_URL: postgresql+asyncpg://sonata:sonata@db:5432/sonata_config_bot
+      # GitHub OAuth App with callback URL http://localhost:8000/auth/callback
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?Set GITHUB_CLIENT_ID in your shell or in a .env file}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?Set GITHUB_CLIENT_SECRET in your shell or in a .env file}
+      SESSION_SECRET: ${SESSION_SECRET:-} # optional; without it, logins reset when the container restarts
     volumes:
       - faiss_index:/app/faiss_index # keep the RAG index across rebuilds
     depends_on:

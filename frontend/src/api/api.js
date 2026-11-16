@@ -1,15 +1,54 @@
 // API base URL — empty for local (uses Vite proxy), full URL for production
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
+// Thrown when the backend answers 401 (not logged in, or the session cookie expired)
+export class UnauthorizedError extends Error {}
+
+function checkResponse(response, errorMessage) {
+  if (response.status === 401) {
+    throw new UnauthorizedError("Not logged in");
+  }
+  if (!response.ok) {
+    throw new Error(errorMessage);
+  }
+}
+
+
+// Page to navigate to (not fetch) to start GitHub login
+export function getLoginUrl() {
+  return `${API_BASE_URL}/auth/login`;
+}
+
+
+// Get the logged-in user, or null if not logged in
+export async function getMe() {
+  const response = await fetch(`${API_BASE_URL}/auth/me`);
+
+  if (response.status === 401) {
+    return null;
+  }
+  checkResponse(response, "Failed to load user");
+
+  return response.json();
+}
+
+
+// Log out (clears the session cookie)
+export async function logout() {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: "POST",
+  });
+
+  checkResponse(response, "Failed to log out");
+}
+
 // Create a new chat session
 export async function createSession() {
   const response = await fetch(`${API_BASE_URL}/session`, {
     method: "POST",
   });
 
-  if (!response.ok) {
-    throw new Error("Failed to create session");
-  }
+  checkResponse(response, "Failed to create session");
 
   return response.json();
 }
@@ -19,9 +58,7 @@ export async function createSession() {
 export async function getSessions() {
   const response = await fetch(`${API_BASE_URL}/sessions`);
 
-  if (!response.ok) {
-    throw new Error("Failed to load sessions");
-  }
+  checkResponse(response, "Failed to load sessions");
 
   return response.json();
 }
@@ -31,9 +68,7 @@ export async function getSessions() {
 export async function getMessages(sessionId) {
   const response = await fetch(`${API_BASE_URL}/session/${sessionId}/messages`);
 
-  if (!response.ok) {
-    throw new Error("Failed to load messages");
-  }
+  checkResponse(response, "Failed to load messages");
 
   return response.json();
 }
@@ -52,9 +87,7 @@ export async function sendChat(sessionId, message) {
     }),
   });
 
-  if (!response.ok) {
-    throw new Error("Failed to send message");
-  }
+  checkResponse(response, "Failed to send message");
 
   return response.json();
 }
@@ -72,9 +105,7 @@ export async function generateConfig(sessionId) {
     }),
   });
 
-  if (!response.ok) {
-    throw new Error("Failed to generate config");
-  }
+  checkResponse(response, "Failed to generate config");
 
   return response.json();
 }

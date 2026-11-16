@@ -10,6 +10,7 @@ export default defineConfig({
       '/session': 'http://localhost:8000',
       '/generate': 'http://localhost:8000',
       '/download': 'http://localhost:8000',
+      '/auth': 'http://localhost:8000',
     },
   },
 })
